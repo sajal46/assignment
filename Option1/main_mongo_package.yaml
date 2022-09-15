@@ -1,0 +1,15 @@
+---
+- hosts: main-mongo
+  tasks:
+  - name: Package installation
+    yum:
+      name:
+        - tmux
+        - htop
+        - s3fs
+      state: latest
+
+  - name:  Ruby specific version installation
+    yum:
+      name: ruby-2.7.5
+      state: present

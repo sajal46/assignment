@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: siteassignment
+  labels:
+    app: mysql
+spec:
+  selector:
+    matchLabels:
+      app: mysql
+  serviceName: mysql
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      initContainers:
+      - name: init-mysql
+        image: mysql:5.7
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: password
+        command:
+        - bash
+        - "-c"
+        - |
+          set -ex
+          # Generate the server ID from the serial number of the Pod
+          [[ $(hostname) =~ -([0-9]+)$ ]] || exit 1
+          ordinal=${BASH_REMATCH[1]}
+          echo [mysqld] > /mnt/conf.d/server-id.cnf
+          # Since the server ID cannot be 0, add 100 to the ID to avoid it
+          echo server-id=$((100 + $ordinal)) >> /mnt/conf.d/server-id.cnf
+          # If the serial number of Pod is 0, it indicates that it is a Master node. Copy the Master configuration file from ConfigMap to the / mnt/conf.d directory
+          # Otherwise, copy the Slave configuration file in ConfigMap
+          if [[ ${ordinal} -eq 0 ]]; then
+            cp /mnt/config-map/master.cnf /mnt/conf.d
+          else
+            cp /mnt/config-map/slave.cnf /mnt/conf.d
+          fi
+        volumeMounts:
+        - name: conf
+          mountPath: /mnt/conf.d
+        - name: config-map
+          mountPath: /mnt/config-map
+      containers:
+      - name: mysql
+        image: mysql:5.7
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: password
+        ports:
+        - name: mysql
+          containerPort: 3306
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+          subPath: mysql
+        - name: conf
+          mountPath: /etc/mysql/conf.d
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+      volumes:
+      - name: conf
+        emptyDir: {}
+      - name: config-map
+        configMap:
+          name: mysql
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - "ReadWriteMany"
+      storageClassName: jyy-cephfs-sc
+      resources:
+        requests:
+          storage: 3Gi
